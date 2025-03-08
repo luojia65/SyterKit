@@ -6,6 +6,7 @@ mod macros;
 pub mod config;
 mod dynamic_info;
 pub mod mctl;
+mod payload;
 mod sdcard;
 pub mod soc;
 mod stdio;
@@ -38,7 +39,8 @@ pub fn show_banner() {
 
 pub use config::{parse_config, Config};
 pub use dynamic_info::DynamicInfo;
-pub use sdcard::{load_from_sdcard, SdCardError};
+pub use payload::run_payload_on;
+pub use sdcard::{load_from_sdcard, print_sdcard_error, SdCardError};
 pub use stdio::{stdin, stdout, Stdin, Stdout};
 pub use time_source::{time_source, TimeSource};
 

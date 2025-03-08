@@ -1922,7 +1922,13 @@ pub fn init_dram(para: &mut dram_parameters, ccu: &CCU, phy: &PHY) -> usize {
     mem_size as usize
 }
 
-pub fn init(ccu: &CCU, phy: &PHY) -> usize {
+pub fn init(ccu: &CCU, phy: &PHY) -> &'static mut [u8] {
+    let size_mb = do_init(ccu, phy);
+    let size = size_mb * 1024 * 1024;
+    unsafe { core::slice::from_raw_parts_mut(RAM_BASE as *mut u8, size) }
+}
+
+fn do_init(ccu: &CCU, phy: &PHY) -> usize {
     // taken from SPL
     #[rustfmt::skip]
     let mut dram_para: dram_parameters = dram_parameters {

@@ -1,3 +1,5 @@
+use core::fmt;
+
 use crate::config::Config;
 use embedded_sdmmc::{BlockDevice, TimeSource, VolumeManager};
 
@@ -96,4 +98,24 @@ fn load_file_into_slice<D: BlockDevice, T: TimeSource>(
     volume_mgr.close_file(file)?;
 
     Ok(size)
+}
+
+pub fn print_sdcard_error<E: fmt::Debug>(err: &SdCardError<E>) {
+    match err {
+        SdCardError::OpenVolume(e) => {
+            println!("Failed to initialize SD card: {:?}", e);
+        }
+        SdCardError::OpenRootDir(e) => {
+            println!("Failed to initialize SD card: {:?}", e);
+        }
+        SdCardError::CloseRootDir(e) => {
+            println!("Failed to initialize SD card: {:?}", e);
+        }
+        SdCardError::ParseConfig(e) => {
+            println!("Failed to initialize SD card: {:?}", e);
+        }
+        SdCardError::LoadFile(e) => {
+            println!("Failed to initialize SD card: {:?}", e);
+        }
+    }
 }

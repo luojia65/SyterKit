@@ -2,7 +2,7 @@
 #![no_main]
 
 use allwinner_hal::smhc::{RegisterBlock, SdCard, Smhc};
-use core::{convert::Infallible, ptr::addr_of, slice::from_raw_parts_mut};
+use core::convert::Infallible;
 use embedded_cli::{
     cli::{CliBuilder, CliHandle},
     Command,
@@ -10,8 +10,8 @@ use embedded_cli::{
 use embedded_io::Read;
 use panic_halt as _;
 use syterkit::{
-    clock_dump, entry, load_from_sdcard, print, println, show_banner, Clocks, Config, DynamicInfo,
-    Peripherals, SdCardError, Stdout,
+    clock_dump, entry, load_from_sdcard, print, println, show_banner, Clocks, Config, Peripherals,
+    Stdout,
 };
 
 #[derive(Command)]
@@ -50,14 +50,28 @@ struct Device<S: AsRef<RegisterBlock>, P> {
     smhc: Smhc<S, P>,
 }
 
+// Load address of Linux Image, offset to DRAM base
+const NEXT_STAGE_OFFSET: usize = 0x180_0000;
+// Address of the device tree blob, offset to DRAM base
+const OPAQUE_OFFSET: usize = 0x100_8000;
+const FIRMWARE_OFFSET: usize = 0x100_0000;
+
+fn partitions(dram: &mut [u8]) -> (&mut [u8], &mut [u8], &mut [u8]) {
+    let (_head, remaining) = dram.split_at_mut(FIRMWARE_OFFSET);
+    let (firmware_dst, remaining) = remaining.split_at_mut(OPAQUE_OFFSET - FIRMWARE_OFFSET);
+    let (opaque_dst, remaining) = remaining.split_at_mut(NEXT_STAGE_OFFSET - OPAQUE_OFFSET);
+    let next_stage_dst = remaining;
+    (opaque_dst, firmware_dst, next_stage_dst)
+}
+
 #[entry] // This macro would initialize system clocks.
 fn main(p: Peripherals, c: Clocks) {
     // Display the bootloader banner.
     show_banner();
 
     // Initialize the DRAM.
-    let dram_size = syterkit::mctl::init(&p.ccu, &p.phy);
-    println!("DRAM size: {}M 🐏", dram_size);
+    let dram = syterkit::mctl::init(&p.ccu, &p.phy);
+    println!("DRAM size: {}M 🐏", dram.len() / (1024 * 1024));
 
     // Dump information about the system clocks.
     clock_dump(&p.ccu);
@@ -84,15 +98,13 @@ fn main(p: Peripherals, c: Clocks) {
         Ok(val) => val,
         Err(e) => {
             println!("SD card init failed with error {:?}", e);
-            run_cli(&mut d, &mut config);
+            run_cli(&mut d, dram, &mut config);
         }
     };
     let size_gb = sdcard.get_size_kb() / 1024.0 / 1024.0;
     println!("SD card initialized, size: {:.2}GB", size_gb);
 
-    let opaque_dst = unsafe { from_raw_parts_mut(0x4100_8000 as *mut u8, 64 * 1024) };
-    let firmware_dst = unsafe { from_raw_parts_mut(0x4100_0000 as *mut u8, 32 * 1024) };
-    let next_stage_dst = unsafe { from_raw_parts_mut(0x4180_0000 as *mut u8, 512 * 1024 * 1024) };
+    let (opaque_dst, firmware_dst, next_stage_dst) = partitions(dram);
     let ans = load_from_sdcard(
         sdcard,
         syterkit::time_source(),
@@ -102,60 +114,33 @@ fn main(p: Peripherals, c: Clocks) {
         next_stage_dst,
     );
 
-    match ans {
-        Ok(_) => {}
-        Err(SdCardError::OpenVolume(e)) => {
-            println!("Failed to initialize SD card: {:?}", e);
-            run_cli(&mut d, &mut config);
-        }
-        Err(SdCardError::OpenRootDir(e)) => {
-            println!("Failed to initialize SD card: {:?}", e);
-            run_cli(&mut d, &mut config);
-        }
-        Err(SdCardError::CloseRootDir(e)) => {
-            println!("Failed to initialize SD card: {:?}", e);
-            run_cli(&mut d, &mut config);
-        }
-        Err(SdCardError::ParseConfig(e)) => {
-            println!("Failed to initialize SD card: {:?}", e);
-            run_cli(&mut d, &mut config);
-        }
-        Err(SdCardError::LoadFile(e)) => {
-            println!("Failed to initialize SD card: {:?}", e);
-            run_cli(&mut d, &mut config);
-        }
-    };
-
     // Run payload.
-    run_payload(&config);
-}
-
-static mut DYNAMIC_INFO: DynamicInfo = DynamicInfo::new();
-
-/// Executes the loaded payload
-fn run_payload(config: &Config) -> ! {
-    const IMAGE_ADDRESS: usize = 0x4180_0000; // Load address of Linux Image
-    const DTB_ADDRESS: usize = 0x4100_8000; // Address of the device tree blob
-    const HART_ID: usize = 0; // Hartid of the current core
-    unsafe {
-        DYNAMIC_INFO = DYNAMIC_INFO
-            .with_next_stage(config.next_stage.mode, IMAGE_ADDRESS)
-            .with_boot_hart(HART_ID)
-    };
-
-    type KernelEntry =
-        unsafe extern "C" fn(hart_id: usize, dtb_addr: usize, dynamic_info: *const DynamicInfo);
-    let kernel_entry: KernelEntry = unsafe { core::mem::transmute(IMAGE_ADDRESS) };
-    let opaque_address = config.opaque.as_ref().map_or(0, |_| DTB_ADDRESS);
-
-    unsafe {
-        kernel_entry(HART_ID, opaque_address, addr_of!(DYNAMIC_INFO));
+    match ans {
+        Ok(_) => run_payload(&config, dram),
+        Err(e) => {
+            syterkit::print_sdcard_error(&e);
+            run_cli(&mut d, dram, &mut config);
+        }
     }
-
-    loop {}
 }
 
-fn run_cli<S: AsRef<RegisterBlock>, P>(d: &mut Device<S, P>, config: &mut Config) -> ! {
+fn run_payload(config: &Config, dram: &mut [u8]) -> ! {
+    let (opaque_dst, firmware_dst, next_stage_dst) = partitions(dram);
+    unsafe {
+        syterkit::run_payload_on(
+            config,
+            firmware_dst.as_ptr() as usize,
+            next_stage_dst.as_ptr() as usize,
+            opaque_dst.as_ptr() as usize,
+        )
+    }
+}
+
+fn run_cli<S: AsRef<RegisterBlock>, P>(
+    d: &mut Device<S, P>,
+    dram: &mut [u8],
+    config: &mut Config,
+) -> ! {
     let (command_buffer, history_buffer) = ([0; 128], [0; 128]);
     let Ok(mut cli) = CliBuilder::default()
         .writer(syterkit::stdout())
@@ -172,8 +157,8 @@ fn run_cli<S: AsRef<RegisterBlock>, P>(d: &mut Device<S, P>, config: &mut Config
             &mut Base::processor(|cli, command| {
                 match command {
                     Base::Bootargs => command_bootargs(cli),
-                    Base::Reload => command_reload(cli, d, config),
-                    Base::Boot => command_boot(cli, config),
+                    Base::Reload => command_reload(cli, d, dram, config),
+                    Base::Boot => command_boot(cli, dram, config),
                     Base::Print => command_print(cli),
                     Base::Read32 { address } => command_read32(cli, address),
                     Base::Write32 { address, data } => command_write32(cli, address, data),
@@ -192,6 +177,7 @@ fn command_bootargs<'a>(_cli: &mut CliHandle<'a, Stdout, Infallible>) {
 fn command_reload<'a, S: AsRef<RegisterBlock>, P>(
     _cli: &mut CliHandle<'a, Stdout, Infallible>,
     d: &mut Device<S, P>,
+    dram: &mut [u8],
     config: &mut Config,
 ) {
     let sdcard = match SdCard::new(&mut d.smhc) {
@@ -202,10 +188,8 @@ fn command_reload<'a, S: AsRef<RegisterBlock>, P>(
         }
     };
 
-    let opaque_dst = unsafe { from_raw_parts_mut(0x4100_8000 as *mut u8, 64 * 1024) };
-    let firmware_dst = unsafe { from_raw_parts_mut(0x4100_0000 as *mut u8, 32 * 1024) };
-    let next_stage_dst = unsafe { from_raw_parts_mut(0x4180_0000 as *mut u8, 512 * 1024 * 1024) };
-    load_from_sdcard(
+    let (opaque_dst, firmware_dst, next_stage_dst) = partitions(dram);
+    let ans = load_from_sdcard(
         sdcard,
         syterkit::time_source(),
         config,
@@ -214,11 +198,18 @@ fn command_reload<'a, S: AsRef<RegisterBlock>, P>(
         next_stage_dst,
     );
 
-    println!("SD card reload succeeded");
+    match ans {
+        Ok(_) => println!("SD card reload succeeded"),
+        Err(e) => syterkit::print_sdcard_error(&e),
+    }
 }
 
-fn command_boot<'a>(_cli: &mut CliHandle<'a, Stdout, Infallible>, config: &mut Config) {
-    run_payload(config);
+fn command_boot<'a>(
+    _cli: &mut CliHandle<'a, Stdout, Infallible>,
+    dram: &mut [u8],
+    config: &mut Config,
+) {
+    run_payload(config, dram);
 }
 
 fn command_print<'a>(cli: &mut CliHandle<'a, Stdout, Infallible>) {
