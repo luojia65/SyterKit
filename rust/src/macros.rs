@@ -1,11 +1,23 @@
 #[allow(unused)]
 macro_rules! impl_gpio_pins {
-    ($($px: ident:($P: expr, $N: expr, $M: ident);)+) => {
+    ($($px: ident:($P: expr, $N: expr);)+) => {
 /// GPIO pads available from SyterKit.
-pub struct Pads<'a> {
+pub struct Pads {
     $(
-    pub $px: ::allwinner_hal::gpio::$M<'a, $P, $N>,
+    pub $px: ::allwinner_rt::soc::d1::Pad<$P, $N>,
     )+
+}
+
+impl Pads {
+    #[doc(hidden)]
+    #[inline]
+    pub fn __new() -> Self {
+        Self {
+            $(
+            $px: ::allwinner_rt::soc::d1::Pad::__new(),
+            )+
+        }
+    }
 }
     };
 }

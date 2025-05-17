@@ -1,7 +1,10 @@
 #![no_std]
 #![no_main]
 
-use allwinner_hal::smhc::{RegisterBlock, SdCard, Smhc};
+use allwinner_hal::{
+    prelude::*,
+    smhc::{RegisterBlock, SdCard, Smhc},
+};
 use core::{convert::Infallible, ptr::addr_of, slice::from_raw_parts_mut};
 use embedded_cli::{
     cli::{CliBuilder, CliHandle},
@@ -205,7 +208,7 @@ fn command_reload<'a, S: AsRef<RegisterBlock>, P>(
     let opaque_dst = unsafe { from_raw_parts_mut(0x4100_8000 as *mut u8, 64 * 1024) };
     let firmware_dst = unsafe { from_raw_parts_mut(0x4100_0000 as *mut u8, 32 * 1024) };
     let next_stage_dst = unsafe { from_raw_parts_mut(0x4180_0000 as *mut u8, 512 * 1024 * 1024) };
-    load_from_sdcard(
+    let _ = load_from_sdcard(
         sdcard,
         syterkit::time_source(),
         config,
