@@ -14,9 +14,6 @@ mod time_source;
 pub use allwinner_hal::ccu::Clocks;
 pub use syterkit_macros::entry;
 
-#[cfg(feature = "sun20iw1")]
-pub use soc::sun20iw1::{__clock_init, clock_dump, Peripherals};
-
 /// Print SyterKit banner.
 pub fn show_banner() {
     println!(" _____     _           _____ _ _   ");
@@ -51,3 +48,8 @@ pub use stdio::{
 // macro internal code, used in `entry` proc macro.
 #[doc(hidden)]
 pub use {allwinner_hal, allwinner_rt};
+
+#[cfg(feature = "sun20iw1")]
+pub use soc::sun20iw1::{__clock_init, clock_dump, Peripherals};
+#[cfg(feature = "sun300iw1")]
+pub use soc::sun300iw1::Peripherals;

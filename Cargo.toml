@@ -5,6 +5,7 @@ members = [
     "rust/macros",
     "rust/xtask",
     "board/100ask-d1-h-rs",
+    "board/avaota-f1-rs",
 ]
 
 [patch.crates-io]

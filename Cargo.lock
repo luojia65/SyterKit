@@ -785,6 +785,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "syterkit-avaota-f1-rs"
+version = "0.0.0"
+dependencies = [
+ "syterkit",
+]
+
+[[package]]
 name = "syterkit-macros"
 version = "0.0.0"
 dependencies = [

@@ -1,0 +1,7 @@
+[package]
+name = "syterkit-avaota-f1-rs"
+version = "0.0.0"
+edition = "2024"
+
+[dependencies]
+syterkit = { path = "../../rust" }
